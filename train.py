@@ -17,6 +17,7 @@ import datasets.sun397
 import datasets.caltech101
 import datasets.ucf101
 import datasets.imagenet
+import datasets.fruitnet
 
 import datasets.imagenet_sketch
 import datasets.imagenetv2
@@ -160,21 +161,11 @@ if __name__ == "__main__":
         default="",
         help="checkpoint directory (from which the training resumes)",
     )
-    parser.add_argument(
-        "--seed", type=int, default=-1, help="only positive value enables a fixed seed"
-    )
-    parser.add_argument(
-        "--source-domains", type=str, nargs="+", help="source domains for DA/DG"
-    )
-    parser.add_argument(
-        "--target-domains", type=str, nargs="+", help="target domains for DA/DG"
-    )
-    parser.add_argument(
-        "--transforms", type=str, nargs="+", help="data augmentation methods"
-    )
-    parser.add_argument(
-        "--config-file", type=str, default="", help="path to config file"
-    )
+    parser.add_argument("--seed", type=int, default=-1, help="only positive value enables a fixed seed")
+    parser.add_argument("--source-domains", type=str, nargs="+", help="source domains for DA/DG")
+    parser.add_argument("--target-domains", type=str, nargs="+", help="target domains for DA/DG")
+    parser.add_argument("--transforms", type=str, nargs="+", help="data augmentation methods")
+    parser.add_argument("--config-file", type=str, default="", help="path to config file")
     parser.add_argument(
         "--dataset-config-file",
         type=str,
@@ -191,12 +182,8 @@ if __name__ == "__main__":
         default="",
         help="load model from this directory for eval-only mode",
     )
-    parser.add_argument(
-        "--load-epoch", type=int, help="load model weights at this epoch for evaluation"
-    )
-    parser.add_argument(
-        "--no-train", action="store_true", help="do not call trainer.train()"
-    )
+    parser.add_argument("--load-epoch", type=int, help="load model weights at this epoch for evaluation")
+    parser.add_argument("--no-train", action="store_true", help="do not call trainer.train()")
     parser.add_argument(
         "opts",
         default=None,
