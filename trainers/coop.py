@@ -11,6 +11,7 @@ from dassl.utils import load_pretrained_weights, load_checkpoint
 from dassl.optim import build_optimizer, build_lr_scheduler
 
 from clip import clip
+from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 
 _tokenizer = _Tokenizer()
@@ -58,9 +59,11 @@ class TextEncoder(nn.Module):
 
 
 class PromptLearner(nn.Module):
-    def __init__(self, cfg, classnames, clip_model):
+    def __init__(self, cfg, train_classnames: list[str], test_classnames: list[str], clip_model: CLIP):
         super().__init__()
-        n_cls = len(classnames)
+        train_n_cls = len(train_classnames)
+        test_n_cls = len(test_classnames)
+        n_cls = train_n_cls + test_n_cls
         n_ctx = cfg.TRAINER.COOP.N_CTX
         ctx_init = cfg.TRAINER.COOP.CTX_INIT
         dtype = clip_model.dtype
@@ -70,7 +73,7 @@ class PromptLearner(nn.Module):
         assert cfg_imsize == clip_imsize, f"cfg_imsize ({cfg_imsize}) must equal to clip_imsize ({clip_imsize})"
 
         if ctx_init:
-            # use given words to initialize context vectors
+            # TODO: use given words to initialize context vectors (still not implemented)
             ctx_init = ctx_init.replace("_", " ")
             n_ctx = len(ctx_init.split(" "))
             prompt = clip.tokenize(ctx_init)
@@ -82,6 +85,7 @@ class PromptLearner(nn.Module):
         else:
             # random initialization
             if cfg.TRAINER.COOP.CSC:
+                # TODO: csc is not available in fruit CLIP
                 print("Initializing class-specific contexts")
                 ctx_vectors = torch.empty(n_cls, n_ctx, ctx_dim, dtype=dtype)
             else:
@@ -95,7 +99,7 @@ class PromptLearner(nn.Module):
 
         self.ctx = nn.Parameter(ctx_vectors)  # to be optimized
 
-        classnames = [name.replace("_", " ") for name in classnames]
+        classnames = [name.replace("_", " ") for name in train_classnames + test_classnames]
         name_lens = [len(_tokenizer.encode(name)) for name in classnames]
         prompts = [prompt_prefix + " " + name + "." for name in classnames]
 
@@ -110,34 +114,79 @@ class PromptLearner(nn.Module):
         self.register_buffer("token_suffix", embedding[:, 1 + n_ctx :, :])  # CLS, EOS
 
         self.n_cls = n_cls
+        self.train_n_cls = train_n_cls
+        self.test_n_cls = test_n_cls
         self.n_ctx = n_ctx
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
         self.name_lens = name_lens
         self.class_token_position = cfg.TRAINER.COOP.CLASS_TOKEN_POSITION
 
+        if self.class_token_position == "insert":
+            self.feature_num: int = cfg.DATASET.FEATURE_NUM
+            assert n_ctx % self.feature_num == 0, "n_ctx cannot be divided by feature_num"
+            features = [[feature + "," for feature in name.split(",")] for name in classnames]
+            for i in range(len(features)):
+                features[i][-1] = features[i][-1].rstrip(",")
+            self.features = nn.ParameterList()
+            for feature in features:
+                f = nn.ParameterList()
+                for part in feature:
+                    part = torch.tensor(_tokenizer.encode(part))
+                    f.append(clip_model.token_embedding(part).unsqueeze(0).type(dtype))
+                for item in f:
+                    item.requires_grad = False
+                self.features.append(f)
+
     def forward(self):
         ctx = self.ctx
-        if ctx.dim() == 2:
-            ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)
 
-        prefix = self.token_prefix
-        suffix = self.token_suffix
+        if self.training:
+            prefix: torch.Tensor = self.token_prefix[: self.train_n_cls]
+            suffix: torch.Tensor = self.token_suffix[: self.train_n_cls]
+            name_lens = self.name_lens[: self.train_n_cls]
+        else:
+            prefix: torch.Tensor = self.token_prefix[self.train_n_cls :]
+            suffix: torch.Tensor = self.token_suffix[self.train_n_cls :]
+            name_lens = self.name_lens[self.train_n_cls :]
+
+        if ctx.dim() == 2:
+            if self.training:
+                ctx = ctx.unsqueeze(0).expand(self.train_n_cls, -1, -1)
+            else:
+                ctx = ctx.unsqueeze(0).expand(self.test_n_cls, -1, -1)
 
         if self.class_token_position == "end":
             prompts = torch.cat(
                 [
                     prefix,  # (n_cls, 1, dim)
-                    ctx,     # (n_cls, n_ctx, dim)
+                    ctx,  # (n_cls, n_ctx, dim)
                     suffix,  # (n_cls, *, dim)
                 ],
                 dim=1,
             )
+        elif self.class_token_position == "insert":
+            part_n_ctx: int = self.n_ctx // self.feature_num
+            prompts = []
+            features = self.features[: self.train_n_cls] if self.training else self.features[self.train_n_cls :]
+            for i in range(self.train_n_cls if self.training else self.test_n_cls):
+                name_len = name_lens[i]
+                prefix_i = prefix[i : i + 1, :, :]
+                class_i = features[i]
+                suffix_i = suffix[i : i + 1, name_len:, :]
+                prompt = [prefix_i]
+                for j in range(self.feature_num):
+                    prompt.append(ctx[i : i + 1, j * part_n_ctx : (j + 1) * part_n_ctx, :])
+                    prompt.append(class_i[j])
+                prompt.append(suffix_i)
+                prompt = torch.cat(prompt, dim=1)
+                prompts.append(prompt)
+            prompts = torch.cat(prompts, dim=0)
 
         elif self.class_token_position == "middle":
             half_n_ctx = self.n_ctx // 2
             prompts = []
-            for i in range(self.n_cls):
-                name_len = self.name_lens[i]
+            for i in range(self.train_n_cls if self.training else self.test_n_cls):
+                name_len = name_lens[i]
                 prefix_i = prefix[i : i + 1, :, :]
                 class_i = suffix[i : i + 1, :name_len, :]
                 suffix_i = suffix[i : i + 1, name_len:, :]
@@ -145,11 +194,11 @@ class PromptLearner(nn.Module):
                 ctx_i_half2 = ctx[i : i + 1, half_n_ctx:, :]
                 prompt = torch.cat(
                     [
-                        prefix_i,     # (1, 1, dim)
+                        prefix_i,  # (1, 1, dim)
                         ctx_i_half1,  # (1, n_ctx//2, dim)
-                        class_i,      # (1, name_len, dim)
+                        class_i,  # (1, name_len, dim)
                         ctx_i_half2,  # (1, n_ctx//2, dim)
-                        suffix_i,     # (1, *, dim)
+                        suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
                 )
@@ -167,25 +216,23 @@ class PromptLearner(nn.Module):
                 prompt = torch.cat(
                     [
                         prefix_i,  # (1, 1, dim)
-                        class_i,   # (1, name_len, dim)
-                        ctx_i,     # (1, n_ctx, dim)
+                        class_i,  # (1, name_len, dim)
+                        ctx_i,  # (1, n_ctx, dim)
                         suffix_i,  # (1, *, dim)
                     ],
                     dim=1,
                 )
                 prompts.append(prompt)
             prompts = torch.cat(prompts, dim=0)
-
         else:
             raise ValueError
-
         return prompts
 
 
 class CustomCLIP(nn.Module):
-    def __init__(self, cfg, classnames, clip_model):
+    def __init__(self, cfg, train_classnames: list, test_classnames: list, clip_model):
         super().__init__()
-        self.prompt_learner = PromptLearner(cfg, classnames, clip_model)
+        self.prompt_learner = PromptLearner(cfg, train_classnames, test_classnames, clip_model)
         self.tokenized_prompts = self.prompt_learner.tokenized_prompts
         self.image_encoder = clip_model.visual
         self.text_encoder = TextEncoder(clip_model)
@@ -196,7 +243,10 @@ class CustomCLIP(nn.Module):
         image_features = self.image_encoder(image.type(self.dtype))
 
         prompts = self.prompt_learner()
-        tokenized_prompts = self.tokenized_prompts
+        if self.prompt_learner.training:
+            tokenized_prompts = self.tokenized_prompts[: self.prompt_learner.train_n_cls]
+        else:
+            tokenized_prompts = self.tokenized_prompts[self.prompt_learner.train_n_cls :]
         text_features = self.text_encoder(prompts, tokenized_prompts)
 
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -221,17 +271,18 @@ class CoOp(TrainerX):
 
     def build_model(self):
         cfg = self.cfg
-        classnames = self.dm.dataset.classnames
+        train_classnames = self.dm.dataset.train_classnames
+        test_classnames = self.dm.dataset.test_classnames
 
         print(f"Loading CLIP (backbone: {cfg.MODEL.BACKBONE.NAME})")
         clip_model = load_clip_to_cpu(cfg)
-        
+
         if cfg.TRAINER.COOP.PREC == "fp32" or cfg.TRAINER.COOP.PREC == "amp":
             # CLIP's default precision is fp16
             clip_model.float()
 
         print("Building custom CLIP")
-        self.model = CustomCLIP(cfg, classnames, clip_model)
+        self.model = CustomCLIP(cfg, train_classnames, test_classnames, clip_model)
 
         print("Turning off gradients in both the image and the text encoder")
         for name, param in self.model.named_parameters():
@@ -258,7 +309,7 @@ class CoOp(TrainerX):
 
     def forward_backward(self, batch):
         image, label = self.parse_batch_train(batch)
-        
+
         prec = self.cfg.TRAINER.COOP.PREC
         if prec == "amp":
             with autocast():

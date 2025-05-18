@@ -1,4 +1,4 @@
 DATASET:
   NAME: "FruitNet"
   NUM_SHOTS: 32
-  # FEATURE_NUM: 3
+  FEATURE_NUM: 4

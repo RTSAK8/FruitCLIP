@@ -6,7 +6,7 @@ TRAINER=CoOp
 
 DATASET=$1
 CFG=$2  # config file
-CTP=$3  # class token position (end or middle)
+CTP=$3  # class token position (end, middle, insert)
 NCTX=$4  # number of context tokens
 SHOTS=$5  # number of shots (1, 2, 4, 8, 16)
 CSC=$6  # class-specific context (False or True)

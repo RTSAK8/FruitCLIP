@@ -53,8 +53,8 @@ class FruitNet(DatasetBase):
         train, test = OxfordPets.subsample_classes(train, test, subsample=subsample)
 
         super().__init__(train_x=train, val=test, test=test)
-        self.train_lab2cname, self.train_classnames = self.get_lab2cname(train)
-        self.test_lab2cname, self.test_classnames = self.get_lab2cname(test)
+        self.train_lab2cname, self._train_classnames = self.get_lab2cname(train)
+        self.test_lab2cname, self._test_classnames = self.get_lab2cname(test)
 
     @staticmethod
     def read_classnames(text_file):
@@ -85,3 +85,11 @@ class FruitNet(DatasetBase):
                 items.append(item)
 
         return items
+
+    @property
+    def train_classnames(self):
+        return self._train_classnames
+
+    @property
+    def test_classnames(self):
+        return self._test_classnames

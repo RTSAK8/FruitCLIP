@@ -4,6 +4,7 @@ import torch
 from dassl.utils import setup_logger, set_random_seed, collect_env_info
 from dassl.config import get_cfg_default
 from dassl.engine import build_trainer
+from configs import *
 
 # custom
 import datasets.oxford_pets
@@ -88,19 +89,10 @@ def extend_cfg(cfg):
     """
     from yacs.config import CfgNode as CN
 
-    cfg.TRAINER.COOP = CN()
-    cfg.TRAINER.COOP.N_CTX = 16  # number of context vectors
-    cfg.TRAINER.COOP.CSC = False  # class-specific context
-    cfg.TRAINER.COOP.CTX_INIT = ""  # initialization words
-    cfg.TRAINER.COOP.PREC = "fp16"  # fp16, fp32, amp
-    cfg.TRAINER.COOP.CLASS_TOKEN_POSITION = "end"  # 'middle' or 'end' or 'front'
-
-    cfg.TRAINER.COCOOP = CN()
-    cfg.TRAINER.COCOOP.N_CTX = 16  # number of context vectors
-    cfg.TRAINER.COCOOP.CTX_INIT = ""  # initialization words
-    cfg.TRAINER.COCOOP.PREC = "fp16"  # fp16, fp32, amp
-
+    get_coop_cfg(cfg)
+    get_cocoop_cfg(cfg)
     cfg.DATASET.SUBSAMPLE_CLASSES = "all"  # all, base or new
+    cfg.DATASET.FEATURE_NUM = 0 # used feature sum of dataset
 
 
 def setup_cfg(args):
