@@ -1,9 +1,7 @@
 #!/bin/bash
 
-cd ../..
-
 # custom config
-DATA=/path/to/datasets
+DATA_DIR=data/fruitnet48
 TRAINER=CoCoOp
 # TRAINER=CoOp
 
@@ -21,12 +19,12 @@ if [ -d "$DIR" ]; then
     echo "Oops! The results exist at ${DIR} (so skip this job)"
 else
     python train.py \
-    --root ${DATA} \
+    --root ${DATA_DIR} \
     --seed ${SEED} \
     --trainer ${TRAINER} \
     --dataset-config-file configs/datasets/${DATASET}.yaml \
     --config-file configs/trainers/${TRAINER}/${CFG}.yaml \
     --output-dir ${DIR} \
     DATASET.NUM_SHOTS ${SHOTS} \
-    DATASET.SUBSAMPLE_CLASSES base
+    DATASET.SUBSAMPLE_CLASSES all
 fi

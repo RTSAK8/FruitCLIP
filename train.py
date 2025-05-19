@@ -92,7 +92,7 @@ def extend_cfg(cfg):
     get_coop_cfg(cfg)
     get_cocoop_cfg(cfg)
     cfg.DATASET.SUBSAMPLE_CLASSES = "all"  # all, base or new
-    cfg.DATASET.FEATURE_NUM = 0 # used feature sum of dataset
+    cfg.DATASET.FEATURE_NUM = 0  # used feature sum of dataset
 
 
 def setup_cfg(args):
