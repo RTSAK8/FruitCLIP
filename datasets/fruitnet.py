@@ -68,7 +68,7 @@ class FruitNet(DatasetBase):
             for folder in classes.keys():
                 if folder == "__base__":
                     continue
-                classnames[folder] = ", ".join([classes[folder][f] for f in feature])
+                classnames[folder] = ", ".join([classes[folder][f] if f != "name" else folder for f in feature])
         return classnames
 
     def read_data(self, classnames, split_dir):

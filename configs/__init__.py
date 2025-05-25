@@ -41,4 +41,4 @@ def get_lasp_cfg(cfg: CN):
     cfg.TRAINER.LASP.TRAIN_W = True
     cfg.TRAINER.LASP.FINETUNE_VIT_LN = True
 
-    cfg.DATASET.INCLUDE_ALL_CLASSES = False
+    cfg.DATASET.INCLUDE_ALL_CLASSES = True

@@ -10,7 +10,7 @@ CFG=$3
 SHOTS=16
 
 
-DIR=output/lasp/train_base_all/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
+DIR=output/lasp/no_name/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 python train.py \
 --root ${DATA} \
 --seed ${SEED} \
