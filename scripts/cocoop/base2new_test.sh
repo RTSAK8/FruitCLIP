@@ -1,25 +1,23 @@
 #!/bin/bash
 
-cd ../..
-
 # custom config
-DATA=/path/to/datasets
+DATA=data
 TRAINER=CoCoOp
 # TRAINER=CoOp
 
 DATASET=$1
 SEED=$2
 
-CFG=vit_b16_c4_ep10_batch1_ctxv1
+CFG=vit_b16
 # CFG=vit_b16_ctxv1  # uncomment this when TRAINER=CoOp
 SHOTS=16
-LOADEP=10
+LOADEP=50
 SUB=new
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 MODEL_DIR=output/base2new/train_base/${COMMON_DIR}
-DIR=output/base2new/test_${SUB}/${COMMON_DIR}
+DIR=output/CoOp/test_${SUB}/${COMMON_DIR}
 if [ -d "$DIR" ]; then
     echo "Oops! The results exist at ${DIR} (so skip this job)"
 else
