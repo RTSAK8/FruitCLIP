@@ -16,8 +16,8 @@ SUB=new
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR=output/base2new/train_base/${COMMON_DIR}
-DIR=output/CoOp/test_${SUB}/${COMMON_DIR}
+MODEL_DIR=output/CoCoOp/train_base/${COMMON_DIR}
+DIR=output/CoCoOp/test_${SUB}/${COMMON_DIR}
 if [ -d "$DIR" ]; then
     echo "Oops! The results exist at ${DIR} (so skip this job)"
 else

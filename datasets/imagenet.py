@@ -42,7 +42,7 @@ class ImageNet(DatasetBase):
         if num_shots >= 1:
             seed = cfg.SEED
             preprocessed = os.path.join(self.split_fewshot_dir, f"shot_{num_shots}-seed_{seed}.pkl")
-            
+
             if os.path.exists(preprocessed):
                 print(f"Loading preprocessed few-shot data from {preprocessed}")
                 with open(preprocessed, "rb") as file:
@@ -54,7 +54,8 @@ class ImageNet(DatasetBase):
                 print(f"Saving preprocessed few-shot data to {preprocessed}")
                 with open(preprocessed, "wb") as file:
                     pickle.dump(data, file, protocol=pickle.HIGHEST_PROTOCOL)
-
+        self.all_class_names = self.get_all_classnames(train, test)
+        
         subsample = cfg.DATASET.SUBSAMPLE_CLASSES
         train, test = OxfordPets.subsample_classes(train, test, subsample=subsample)
 
@@ -74,6 +75,14 @@ class ImageNet(DatasetBase):
                 classname = " ".join(line[1:])
                 classnames[folder] = classname
         return classnames
+
+    @staticmethod
+    def get_all_classnames(*args):
+        classnames = []
+        for dataset in args:
+            for item in dataset:
+                classnames.append(item.classname)
+        return list(set(classnames))
 
     def read_data(self, classnames, split_dir):
         split_dir = os.path.join(self.image_dir, split_dir)

@@ -22,7 +22,7 @@ _tokenizer = _Tokenizer()
 def load_clip_to_cpu(cfg):
     backbone_name = cfg.MODEL.BACKBONE.NAME
     url = clip._MODELS[backbone_name]
-    model_path = clip._download(url, "./checkpoints")
+    model_path = clip._download(url)
 
     try:
         # loading JIT archive
@@ -61,12 +61,8 @@ class TextEncoder(nn.Module):
 
 
 class PromptLearner(nn.Module):
-    def __init__(self, cfg, classnames, test_classnames, clip_model, text_encoder_model, all_classnames):
+    def __init__(self, cfg, classnames, clip_model, text_encoder_model, all_classnames):
         super().__init__()
-        self.train_n_cls = len(classnames)
-        self.test_n_cls = len(test_classnames)
-        self.train_classnames = classnames
-        self.test_classnames = test_classnames
         n_cls = len(all_classnames) if cfg.DATASET.INCLUDE_ALL_CLASSES else len(classnames)
         n_ctx = cfg.TRAINER.LASP.N_CTX
         ctx_init = cfg.TRAINER.LASP.CTX_INIT
@@ -102,9 +98,6 @@ class PromptLearner(nn.Module):
         classnames = [name.replace("_", " ") for name in classnames]
         all_classnames = [name.replace("_", " ") for name in all_classnames]
 
-        self.features = self._construct_features(n_ctx, classnames, clip_model, dtype)
-        self.all_features = self._construct_features(n_ctx, all_classnames, clip_model, dtype)
-
         if cfg.DATASET.INCLUDE_ALL_CLASSES:
             # Preserve class order
             classes_delta = [name for name in all_classnames if name not in classnames]
@@ -136,25 +129,6 @@ class PromptLearner(nn.Module):
 
         if cfg.TRAINER.LASP.ENABLE_CORRECTION:
             self.w = nn.Parameter(torch.zeros(1, ctx_dim, device=embedding.device, dtype=dtype), requires_grad=self.cfg.TRAINER.LASP.TRAIN_W)
-
-    def _construct_features(self, n_ctx, classnames, clip_model, dtype):
-        cfg = self.cfg
-        # NOTE: insert method
-        self.feature_num: int = cfg.DATASET.FEATURE_NUM
-        assert n_ctx % self.feature_num == 0, "n_ctx cannot be divided by feature_num"
-        features = [[feature + "," for feature in name.split(",")] for name in classnames]
-        for i in range(len(features)):
-            features[i][-1] = features[i][-1].rstrip(",")
-        features_param = nn.ParameterList()
-        for feature in features:
-            f = nn.ParameterList()
-            for part in feature:
-                part = torch.tensor(_tokenizer.encode(part))
-                f.append(clip_model.token_embedding(part).unsqueeze(0).type(dtype))
-            for item in f:
-                item.requires_grad = False
-            features_param.append(f)
-        return features_param
 
     def construct_references_lasp(self, cfg, clip_model, text_encoder_model, all_classnames, prompt_prefix, dtype, n_ctx):
         print("Initializing LASP prompts...")
@@ -226,11 +200,11 @@ class PromptLearner(nn.Module):
 
 
 class CustomCLIP(nn.Module):
-    def __init__(self, cfg, train_classnames, test_classnames, clip_model, all_classnames):
+    def __init__(self, cfg, classnames, clip_model, all_classnames):
         super().__init__()
         self.image_encoder = clip_model.visual
         self.text_encoder = nn.DataParallel(TextEncoder(clip_model))
-        self.prompt_learner = PromptLearner(cfg, train_classnames, test_classnames, clip_model, self.text_encoder, all_classnames)
+        self.prompt_learner = PromptLearner(cfg, classnames, clip_model, self.text_encoder, all_classnames)
         self.tokenized_prompts = self.prompt_learner.tokenized_prompts
         self.logit_scale = clip_model.logit_scale
         self.dtype = clip_model.dtype
@@ -278,10 +252,6 @@ class CustomCLIP(nn.Module):
             text_features = text_features + w
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-        if not self.prompt_learner.training:
-            # tokenized_prompts = self.tokenized_prompts[self.prompt_learner.train_n_cls :]
-            text_features = text_features[self.prompt_learner.train_n_cls :]
-            
         loss, logits = self.loss(image_features, text_features, label, t=self.logit_scale)
 
         if self.prompt_learner.training:
@@ -301,9 +271,8 @@ class LASP(TrainerX):
 
     def build_model(self):
         cfg = self.cfg
-        train_classnames = self.dm.dataset.train_classnames
-        test_classnames = self.dm.dataset.test_classnames
-        all_classnames = self.dm.dataset.train_classnames + self.dm.dataset.test_classnames
+        classnames = self.dm.dataset.classnames
+        all_classnames = self.dm.dataset.all_class_names
 
         print(f"Loading CLIP (backbone: {cfg.MODEL.BACKBONE.NAME})")
         clip_model = load_clip_to_cpu(cfg)
@@ -313,7 +282,7 @@ class LASP(TrainerX):
             clip_model.float()
 
         print("Building custom CLIP")
-        self.model = CustomCLIP(cfg, train_classnames, test_classnames, clip_model, all_classnames)
+        self.model = CustomCLIP(cfg, classnames, clip_model, all_classnames)
 
         print("Turning off gradients in both the image and the text encoder")
         name_to_update = "prompt_learner"

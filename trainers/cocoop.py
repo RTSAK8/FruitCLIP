@@ -62,7 +62,6 @@ class TextEncoder(nn.Module):
 class PromptLearner(nn.Module):
     def __init__(self, cfg, classnames, clip_model):
         super().__init__()
-        print(classnames)
         n_cls = len(classnames)
         n_ctx = cfg.TRAINER.COCOOP.N_CTX
         ctx_init = cfg.TRAINER.COCOOP.CTX_INIT
@@ -93,12 +92,10 @@ class PromptLearner(nn.Module):
 
         self.ctx = nn.Parameter(ctx_vectors)
 
-        self.meta_net = nn.Sequential(OrderedDict([
-            ("linear1", nn.Linear(vis_dim, vis_dim // 16)),
-            ("relu", nn.ReLU(inplace=True)),
-            ("linear2", nn.Linear(vis_dim // 16, ctx_dim))
-        ]))
-        
+        self.meta_net = nn.Sequential(
+            OrderedDict([("linear1", nn.Linear(vis_dim, vis_dim // 16)), ("relu", nn.ReLU(inplace=True)), ("linear2", nn.Linear(vis_dim // 16, ctx_dim))])
+        )
+
         if cfg.TRAINER.COCOOP.PREC == "fp16":
             self.meta_net.half()
 
@@ -120,7 +117,23 @@ class PromptLearner(nn.Module):
         self.n_ctx = n_ctx
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
         self.name_lens = name_lens
-    
+        self.class_token_position = cfg.TRAINER.COOP.CLASS_TOKEN_POSITION
+        if self.class_token_position == "insert":
+            self.feature_num: int = cfg.DATASET.FEATURE_NUM
+            assert n_ctx % self.feature_num == 0 and self.feature_num > 0, "n_ctx cannot be divided by feature_num"
+            features = [[feature + "," for feature in name.split(",")] for name in classnames]
+            for i in range(len(features)):
+                features[i][-1] = features[i][-1].rstrip(",")
+            self.features = nn.ParameterList()
+            for feature in features:
+                f = nn.ParameterList()
+                for part in feature:
+                    part = torch.tensor(_tokenizer.encode(part))
+                    f.append(clip_model.token_embedding(part).unsqueeze(0).type(dtype))
+                for item in f:
+                    item.requires_grad = False
+                self.features.append(f)
+
     def construct_prompts(self, ctx, prefix, suffix, label=None):
         # dim0 is either batch_size (during training) or n_cls (during testing)
         # ctx: context tokens, with shape of (dim0, n_ctx, ctx_dim)
@@ -131,26 +144,44 @@ class PromptLearner(nn.Module):
             prefix = prefix[label]
             suffix = suffix[label]
 
-        prompts = torch.cat(
-            [
-                prefix,  # (dim0, 1, dim)
-                ctx,     # (dim0, n_ctx, dim)
-                suffix,  # (dim0, *, dim)
-            ],
-            dim=1,
-        )
+        if self.class_token_position == "insert":
+            part_n_ctx: int = self.n_ctx // self.feature_num
+            prompts = []
+            features = self.features
+            for i in range(self.n_cls):
+                name_len = self.name_lens[i]
+                prefix_i = prefix[i : i + 1, :, :]
+                class_i = features[i]
+                suffix_i = suffix[i : i + 1, name_len:, :]
+                prompt = [prefix_i]
+                for j in range(self.feature_num):
+                    prompt.append(ctx[i : i + 1, j * part_n_ctx : (j + 1) * part_n_ctx, :])
+                    prompt.append(class_i[j])
+                prompt.append(suffix_i)
+                prompt = torch.cat(prompt, dim=1)
+                prompts.append(prompt)
+            prompts = torch.cat(prompts, dim=0)
+        else:
+            prompts = torch.cat(
+                [
+                    prefix,  # (dim0, 1, dim)
+                    ctx,  # (dim0, n_ctx, dim)
+                    suffix,  # (dim0, *, dim)
+                ],
+                dim=1,
+            )
 
         return prompts
 
     def forward(self, im_features):
         prefix = self.token_prefix
         suffix = self.token_suffix
-        ctx = self.ctx                     # (n_ctx, ctx_dim)
+        ctx = self.ctx  # (n_ctx, ctx_dim)
         bias = self.meta_net(im_features)  # (batch, ctx_dim)
-        bias = bias.unsqueeze(1)           # (batch, 1, ctx_dim)
-        ctx = ctx.unsqueeze(0)             # (1, n_ctx, ctx_dim)
-        ctx_shifted = ctx + bias           # (batch, n_ctx, ctx_dim)
-        
+        bias = bias.unsqueeze(1)  # (batch, 1, ctx_dim)
+        ctx = ctx.unsqueeze(0)  # (1, n_ctx, ctx_dim)
+        ctx_shifted = ctx + bias  # (batch, n_ctx, ctx_dim)
+
         # Use instance-conditioned context tokens for all classes
         prompts = []
         for ctx_shifted_i in ctx_shifted:
@@ -158,7 +189,7 @@ class PromptLearner(nn.Module):
             pts_i = self.construct_prompts(ctx_i, prefix, suffix)  # (n_cls, n_tkn, ctx_dim)
             prompts.append(pts_i)
         prompts = torch.stack(prompts)
-        
+
         return prompts
 
 
@@ -180,7 +211,7 @@ class CustomCLIP(nn.Module):
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
         prompts = self.prompt_learner(image_features)
-        
+
         logits = []
         for pts_i, imf_i in zip(prompts, image_features):
             text_features = self.text_encoder(pts_i, tokenized_prompts)
@@ -188,10 +219,10 @@ class CustomCLIP(nn.Module):
             l_i = logit_scale * imf_i @ text_features.t()
             logits.append(l_i)
         logits = torch.stack(logits)
-        
+
         if self.prompt_learner.training:
             return F.cross_entropy(logits, label)
-        
+
         return logits
 
 
@@ -206,7 +237,7 @@ class CoCoOp(TrainerX):
 
         print(f"Loading CLIP (backbone: {cfg.MODEL.BACKBONE.NAME})")
         clip_model = load_clip_to_cpu(cfg)
-        
+
         if cfg.TRAINER.COCOOP.PREC == "fp32" or cfg.TRAINER.COCOOP.PREC == "amp":
             # CLIP's default precision is fp16
             clip_model.float()
@@ -216,11 +247,11 @@ class CoCoOp(TrainerX):
 
         print("Turning off gradients in both the image and the text encoder")
         name_to_update = "prompt_learner"
-        
+
         for name, param in self.model.named_parameters():
             if name_to_update not in name:
                 param.requires_grad_(False)
-        
+
         # Double check
         enabled = set()
         for name, param in self.model.named_parameters():
@@ -252,7 +283,7 @@ class CoCoOp(TrainerX):
         model = self.model
         optim = self.optim
         scaler = self.scaler
-        
+
         prec = self.cfg.TRAINER.COCOOP.PREC
         if prec == "amp":
             with autocast():

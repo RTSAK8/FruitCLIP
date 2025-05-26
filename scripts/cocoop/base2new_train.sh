@@ -14,7 +14,7 @@ CFG=vit_b16
 SHOTS=16
 
 
-DIR=output/CoCoOp/train/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
+DIR=output/CoCoOp/train_base/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 if [ -d "$DIR" ]; then
     echo "Oops! The results exist at ${DIR} (so skip this job)"
 else

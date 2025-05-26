@@ -1,6 +1,6 @@
 #!/bin/bash
 # custom config
-DATA=data/fruitnet48
+DATA=data
 TRAINER=LASP
 
 DATASET=$1
@@ -10,7 +10,7 @@ CFG=$3
 SHOTS=16
 
 
-DIR=output/lasp/no_name/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
+DIR=output/lasp/train_base_all/${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
 python train.py \
 --root ${DATA} \
 --seed ${SEED} \
@@ -20,4 +20,3 @@ python train.py \
 --output-dir ${DIR} \
 DATASET.NUM_SHOTS ${SHOTS} \
 DATASET.SUBSAMPLE_CLASSES all
-

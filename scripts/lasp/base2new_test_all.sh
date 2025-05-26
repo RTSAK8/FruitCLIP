@@ -1,9 +1,6 @@
 #!/bin/bash
-
-cd ../..
-
 # custom config
-DATA=~/Datasets/coop_datasets/ 
+DATA=data 
 TRAINER=LASP
 
 DATASET=$1
@@ -16,8 +13,8 @@ SUB=new
 
 
 COMMON_DIR=${DATASET}/shots_${SHOTS}/${TRAINER}/${CFG}/seed${SEED}
-MODEL_DIR=output/base2new/train_base/${COMMON_DIR}
-DIR=output/base2new/test_${SUB}/${COMMON_DIR}
+MODEL_DIR=output/lasp/train_base/${COMMON_DIR}
+DIR=output/lasp/test_${SUB}/${COMMON_DIR}
 python train.py \
 --root ${DATA} \
 --seed ${SEED} \
