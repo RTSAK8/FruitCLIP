@@ -8,7 +8,7 @@ TRAINER=CoCoOp
 DATASET=$1
 SEED=$2
 
-CFG=vit_b16
+CFG=vit_b16_insert
 # CFG=vit_b16_ctxv1  # uncomment this when TRAINER=CoOp
 SHOTS=16
 LOADEP=50

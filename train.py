@@ -30,6 +30,7 @@ import trainers.cocoop
 import trainers.zsclip
 import trainers.lasp
 
+
 def print_args(args, cfg):
     print("***************")
     print("** Arguments **")
@@ -93,9 +94,9 @@ def extend_cfg(cfg):
     get_cocoop_cfg(cfg)
     get_lasp_cfg(cfg)
     
+    cfg.TRAINER.CLASS_TOKEN_POSITION = "end"
     cfg.DATASET.SUBSAMPLE_CLASSES = "all"  # all, base or new
     cfg.DATASET.FEATURE_NUM = 0  # used feature sum of dataset
-    
 
 
 def setup_cfg(args):

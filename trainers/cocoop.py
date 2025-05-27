@@ -117,22 +117,25 @@ class PromptLearner(nn.Module):
         self.n_ctx = n_ctx
         self.tokenized_prompts = tokenized_prompts  # torch.Tensor
         self.name_lens = name_lens
-        self.class_token_position = cfg.TRAINER.COOP.CLASS_TOKEN_POSITION
+        self.class_token_position = cfg.TRAINER.CLASS_TOKEN_POSITION
         if self.class_token_position == "insert":
             self.feature_num: int = cfg.DATASET.FEATURE_NUM
             assert n_ctx % self.feature_num == 0 and self.feature_num > 0, "n_ctx cannot be divided by feature_num"
             features = [[feature + "," for feature in name.split(",")] for name in classnames]
+
             for i in range(len(features)):
                 features[i][-1] = features[i][-1].rstrip(",")
-            self.features = nn.ParameterList()
-            for feature in features:
-                f = nn.ParameterList()
-                for part in feature:
-                    part = torch.tensor(_tokenizer.encode(part))
-                    f.append(clip_model.token_embedding(part).unsqueeze(0).type(dtype))
-                for item in f:
-                    item.requires_grad = False
-                self.features.append(f)
+            self.feature_buffer_names = []
+            for i, feature in enumerate(features):
+                row_name = []
+                for j, part in enumerate(feature):
+                    token = torch.tensor(_tokenizer.encode(part))
+                    embedding = clip_model.token_embedding(token).unsqueeze(0).type(dtype)
+
+                    buffer_name = f"feature_{i}_{j}"
+                    self.register_buffer(buffer_name, embedding, persistent=False)
+                    row_name.append(buffer_name)
+                self.feature_buffer_names.append(row_name)
 
     def construct_prompts(self, ctx, prefix, suffix, label=None):
         # dim0 is either batch_size (during training) or n_cls (during testing)
@@ -147,16 +150,18 @@ class PromptLearner(nn.Module):
         if self.class_token_position == "insert":
             part_n_ctx: int = self.n_ctx // self.feature_num
             prompts = []
-            features = self.features
+            feature_buffer_names = self.feature_buffer_names
+
             for i in range(self.n_cls):
                 name_len = self.name_lens[i]
                 prefix_i = prefix[i : i + 1, :, :]
-                class_i = features[i]
+                class_i = [getattr(self, name).detach() for name in feature_buffer_names[i]]
                 suffix_i = suffix[i : i + 1, name_len:, :]
                 prompt = [prefix_i]
                 for j in range(self.feature_num):
                     prompt.append(ctx[i : i + 1, j * part_n_ctx : (j + 1) * part_n_ctx, :])
                     prompt.append(class_i[j])
+
                 prompt.append(suffix_i)
                 prompt = torch.cat(prompt, dim=1)
                 prompts.append(prompt)
